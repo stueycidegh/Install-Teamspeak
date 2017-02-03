@@ -1,0 +1,385 @@
+#################################
+########## Find Distro ##########
+#################################
+
+distro=$(cat /etc/os-release | grep "ID_LIKE=*" | cut -c9-)
+arch=$(arch)
+
+########################################
+########## Current TS Version ##########
+########################################
+
+version=$(curl -s https://teamspeak-servers.org/versions/ | grep "Teamspeak Version" | cut -c57-64 | head -1)
+
+######################################
+########## Start Ubuntu ##############
+######################################
+
+if [[ $distro =~ ubuntu|debian ]]
+	then
+
+		#########################################################
+		########## Dependencies, MariaDB and Create DB ##########
+		#########################################################
+
+		echo -e ""
+		echo -e "#############################################"
+		echo -e "########## Installing Dependencies ##########"
+		echo -e "#############################################"
+		echo -e ""
+
+		sudo apt-get install bzip2 wget perl tar net-tools vim libmariadb2 -y &>> tsinstall.log
+		sudo apt-get install mariadb-client mariadb-server -y &>> tsinstall.log
+		echo -e ""
+		echo -e "#########################################################"
+		echo -e "########## Please complete the following steps ##########"
+		echo -e "##########           to secure MySQL           ##########"
+		echo -e "#########################################################"
+		echo -e ""
+		mysql_secure_installation
+		echo -e ""
+		echo -e "##################################"
+		read -p "Please confirm database password: " dbpass
+		echo -e "##################################"
+		echo -e ""
+		sudo update-rd.d mariadb defaults &>> tsinstall.log
+
+		echo -e ""
+		echo -e "##########################################"
+		echo -e "########## Creating User and DB ##########"
+		echo -e "##########################################"
+		echo -e ""
+
+		sudo useradd -d /opt/teamspeak3-server -m teamspeak3-user &>> tsinstall.log
+		sudo mysql -u root -p $dbpass <<EOF
+create database teamspeak3;
+GRANT ALL PRIVILEGES ON teamspeak3.* TO teamspeak3@localhost IDENTIFIED BY '$dbpass';
+flush privileges;
+quit
+EOF
+
+			if [[ $arch =~ x86_64 ]]
+			then
+
+				echo -e ""
+				echo -e "##########################################################"
+				echo -e "########## Installing to /opt/teamspeak3-server ##########"
+				echo -e "##########               for 64Bit              ##########"
+				echo -e "##########################################################"
+				echo -e ""
+
+				#######################################################
+				########## Install to /opt/teamspeak3-server ##########
+				##########             for 64Bit             ##########
+				#######################################################
+
+				sudo wget http://dl.4players.de/ts/releases/$version/teamspeak3-server_linux-amd64-$version.tar.bz2 &>> tsinstall.log
+				sudo tar -zxvf teamspeak3-server_linux-amd64-$version.tar.bz2 &>> tsinstall.log
+				sudo mv teamspeak3-server_linux-amd64/* /opt/teamspeak3-server &>> tsinstall.log
+				sudo chown teamspeak3-user:teamspeak3-user /opt/teamspeak3-server -R &>> tsinstall.log
+				sudo rm -fr teamspeak3-server_linux-amd64-$version.tar.bz2 teamspeak3-server_linux-amd64 &>> tsinstall.log
+				sudo ln -s /opt/teamspeak3-server/redist/libmariadb.so.2 /opt/teamspeak3-server/libmariadb.so.2 &>> tsinstall.log
+				sudo ldd /opt/teamspeak3-server/libts3db_mariadb.so &>> tsinstall.log
+
+			elif [[ $arch =~ i ]]
+			then
+
+				echo -e ""
+				echo -e "##########################################################"
+				echo -e "########## Installing to /opt/teamspeak3-server ##########"
+				echo -e "##########               for 32Bit              ##########"
+				echo -e "##########################################################"
+				echo -e ""
+
+				#######################################################
+				########## Install to /opt/teamspeak3-server ##########
+				##########             for 32Bit             ##########
+				#######################################################
+
+				sudo wget http://dl.4players.de/ts/releases/$version/teamspeak3-server_linux-x86-$version.tar.bz2 &>> tsinstall.log
+				sudo tar -zxvf teamspeak3-server_linux-x86-$version.tar.bz2 &>> tsinstall.log
+				sudo mkdir /opt/teamspeak3-server
+				sudo mv teamspeak3-server_linux-x86/* /opt/teamspeak3-server &>> tsinstall.log
+				sudo chown teamspeak3-user:teamspeak3-user /opt/teamspeak3-server -R &>> tsinstall.log
+				sudo rm -fr teamspeak3-server_linux-x86-$version.tar.bz2 teamspeak3-server_linux-x86 &>> tsinstall.log
+				sudo ln -s /opt/teamspeak3-server/redist/libmariadb.so.2 /opt/teamspeak3-server/libmariadb.so.2 &>> tsinstall.log
+				sudo ldd /opt/teamspeak3-server/libts3db_mariadb.so &>> tsinstall.log
+
+			fi
+
+		######################################
+		########## Create ini files ##########
+		######################################
+
+		echo -e ""
+		echo -e "##############################################"
+		echo -e "########## Creating necessary files ##########"
+		echo -e "##############################################"
+		echo -e ""
+
+		sudo touch /opt/teamspeak3-server/query_ip_blacklist.txt &>> tsinstall.log
+
+		sudo cat  << EOT > /opt/teamspeak3-server/query_ip_whitelist.txt
+127.0.0.1
+EOT
+
+		sudo touch /opt/teamspeak3-server/ts3server.ini &>> tsinstall.log
+		sudo cat << EOT > /opt/teamspeak3-server/ts3server.ini
+		machine_id=
+default_voice_port=9987
+voice_ip=0.0.0.0
+licensepath=
+filetransfer_port=30033
+filetransfer_ip=0.0.0.0
+query_port=10011
+query_ip=0.0.0.0
+query_ip_whitelist=query_ip_whitelist.txt
+query_ip_blacklist=query_ip_blacklist.txt
+dbsqlpath=sql/
+dbplugin=ts3db_mariadb
+dbsqlcreatepath=create_mariadb/
+dbpluginparameter=ts3db_mariadb.ini
+dbconnections=10
+logpath=logs
+logquerycommands=0
+dbclientkeepdays=30
+logappend=0
+query_skipbruteforcecheck=0
+EOT
+
+		sudo touch /opt/teamspeak3-server/ts3db_mariadb.ini &>> tsinstall.log
+		sudo cat << EOT > /opt/teamspeak3-server/ts3db_mariadb.ini
+		[config]
+host=127.0.0.1
+port=3306
+username=teamspeak3
+password=$dbpass
+database=teamspeak3
+socket=
+EOT
+
+		####################################
+		########## Create Service ##########
+		####################################
+
+		sudo chown teamspeak3-user:teamspeak3-user /opt/teamspeak3-server -R &>> tsinstall.log
+		sudo touch /etc/init.d/ts3 &>> tsinstall.log
+		sudo cat << EOT > /etc/init.d/ts3
+		#! /bin/sh
+### BEGIN INIT INFO
+# Provides:          ts3
+# Required-Start:    $network mysql
+# Required-Stop:     $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: TeamSpeak3 Server Daemon
+# Description:       Starts/Stops/Restarts the TeamSpeak Server Daemon
+### END INIT INFO
+
+set -e
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+DESC="TeamSpeak3 Server"
+NAME=teamspeak3-server
+USER=teamspeak3-user
+DIR=/opt/teamspeak3-server
+OPTIONS=inifile=ts3server.ini
+DAEMON=$DIR/ts3server_startscript.sh
+#PIDFILE=/var/run/$NAME.pid
+SCRIPTNAME=/etc/init.d/$NAME
+
+# Gracefully exit if the package has been removed.
+test -x $DAEMON || exit 0
+
+sleep 2
+sudo -u $USER $DAEMON $1 $OPTIONS
+EOT
+
+		########################################		
+		########## Change permissions ##########
+		########################################
+
+		sudo chmod a+x /etc/init.d/ts3 &>> tsinstall.log
+		sudo chmod a+x /opt/teamspeak3-server/ts3server_startscript.sh &>> tsinstall.log
+		sudo chmod a+x /opt/teamspeak3-server/ts3server_minimal_runscript.sh &>> tsinstall.log
+
+		echo -e "#################################"
+		echo -e "########## Cleaning up ##########"
+		echo -e "#################################"
+
+		##########################################
+		########## Set to start on boot ##########
+		##########  Start server build  ##########
+		##########################################
+
+		sudo update-rc.d ts3 defaults &>> tsinstall.log
+
+		sudo bash ts3server_startscript.sh &>> tsinstall.sh
+
+####################################
+########## End Ubuntu ##############
+####################################
+
+####################################
+########## Start RHEL ##############
+####################################
+
+elif [[ $distro =~ rhel ]]
+	then
+
+		echo -e ""
+		echo -e "#############################################"
+		echo -e "########## Installing Dependencies ##########"
+		echo -e "#############################################"
+		echo -e ""
+
+		#########################################################
+		########## Dependencies, MariaDB and Create DB ##########
+		#########################################################
+
+		echo -e ""
+		echo -e "##########################################"
+		echo -e "########## Creating User and DB ##########"
+		echo -e "##########################################"
+		echo -e ""
+
+		yum install bzip2 wget perl tar net-tools vim -y &>> tsinstall.log
+		sudo yum install mariadb mariadb-server -y &>> tsinstall.log
+		echo -e ""
+		echo -e "#########################################################"
+		echo -e "########## Please complete the following steps ##########"
+		echo -e "##########           to secure MySQL           ##########"
+		echo -e "#########################################################"
+		echo -e ""
+		mysql_secure_installation
+		echo -e ""
+		echo -e "##################################"
+		read -p "Please confirm database password: " dbpass
+		echo -e "##################################"
+		echo -e ""
+		sudo systemctl start mariadb &>> tsinstall.log
+		sudo systemctl enable mariadb &>> tsinstall.log
+		sudo adduser teamspeak &>> tsinstall.log
+		sudo passwd -l teamspeak
+		sudo mysql -uroot -p$dbpass -e "create database teamspeak;"
+		sudo mysql -uroot -p$dbpass -e "GRANT ALL PRIVILEGES ON teamspeak.* TO teamspeak@localhost IDENTIFIED BY '$dbpass';"
+		sudo mysql -uroot -p$dbpass -e "flush privileges;"
+
+			if [[ $arch =~ x86_64 ]]
+			then
+
+				echo -e ""
+				echo -e "##########################################################"
+				echo -e "########## Installing to /opt/teamspeak3-server ##########"
+				echo -e "##########               for 64Bit              ##########"
+				echo -e "##########################################################"
+				echo -e ""
+
+				#######################################################
+				########## Install to /opt/teamspeak3-server ##########
+				##########             for 64Bit             ##########
+				#######################################################
+
+				sudo mkdir /opt/teamspeak &>> tsinstall.log
+				cd /opt/teamspeak &>> tsinstall.log
+				sudo wget http://dl.4players.de/ts/releases/$version/teamspeak3-server_linux_amd64-$version.tar.bz2 &>> tsinstall.log
+				sudo tar xvf teamspeak3-server_linux_amd64-$version.tar.bz2 &>> tsinstall.log
+				cd teamspeak3-server_linux_amd64 &>> tsinstall.log
+				sudo mv ./* ../ &>> tsinstall.log
+				cd .. &>> tsinstall.log
+				sudo rm -rf teamspeak3-server_linux_amd64* &>> tsinstall.log
+				sudo chown -R teamspeak:teamspeak /opt/teamspeak &>> tsinstall.log
+
+			elif [[ $arch =~ i ]]
+			then
+
+				echo -e ""
+				echo -e "##########################################################"
+				echo -e "########## Installing to /opt/teamspeak3-server ##########"
+				echo -e "##########               for 32Bit              ##########"
+				echo -e "##########################################################"
+				echo -e ""
+
+				#######################################################
+				########## Install to /opt/teamspeak3-server ##########
+				##########             for 32Bit             ##########
+				#######################################################
+
+				sudo mkdir /opt/teamspeak &>> tsinstall.log
+				cd /opt/teamspeak &>> tsinstall.log
+				sudo wget http://dl.4players.de/ts/releases/$version/teamspeak3-server_linux_x86-$version.tar.bz2 &>> tsinstall.log
+				sudo tar xvf teamspeak3-server_linux_x86-$version.tar.bz2 &>> tsinstall.log
+				cd teamspeak3-server_linux_x86 &>> tsinstall.log
+				sudo mv ./* ../ &>> tsinstall.log
+				cd .. &>> tsinstall.log
+				sudo rm -rf teamspeak3-server_linux_x86* &>> tsinstall.log
+				sudo chown -R teamspeak:teamspeak /opt/teamspeak &>> tsinstall.log
+
+			fi
+
+		echo -e ""
+		echo -e "##############################################"
+		echo -e "########## Creating necessary files ##########"
+		echo -e "##############################################"
+		echo -e ""
+
+		####################################
+		########## Create Service ##########
+		####################################
+
+		sudo cat << EOT > /lib/systemd/system/teamspeak.service
+[Unit]
+Description=Team Speak 3 Server
+After=network.target
+[Service]
+WorkingDirectory=/opt/teamspeak
+User=teamspeak
+Group=teamspeak
+Type=forking
+ExecStart=/opt/teamspeak/ts3server_startscript.sh start inifile=ts3server.ini
+ExecStop=/opt/teamspeak/ts3server_startscript.sh stop
+PIDFile=/opt/teamspeak/ts3server.pid
+RestartSec=15
+Restart=always
+[Install]
+WantedBy=multi-user.target
+EOT
+
+		echo -e "#################################"
+		echo -e "########## Cleaning up ##########"
+		echo -e "#################################"
+
+		##########################################
+		########## Set to start on boot ##########
+		##########  Start server build  ##########
+		##########################################
+
+		sudo systemctl --system daemon-reload &>> tsinstall.log
+		sudo systemctl start teamspeak.service &>> tsinstall.log
+		sudo systemctl enable teamspeak.service &>> tsinstall.log
+
+		sudo bash /opt/teamspeak/ts3server_startscript.sh &>> tsinstall.log
+
+##################################
+########## End RHEL ##############
+##################################
+
+else
+	exit
+fi
+
+############################################
+########## Add Firewall Rules ##############
+############################################
+
+sudo iptables -A INPUT -p udp --dport 9987 -j ACCEPT &>> tsinstall.log
+sudo iptables -A INPUT -p tcp --dport 10011 -j ACCEPT &>> tsinstall.log
+sudo iptables -A INPUT -p tcp --dport 30033 -j ACCEPT &>> tsinstall.log
+
+###################################################
+########## End Adding Firewall Rules ##############
+###################################################
+
+#################################################
+########## Provide details to User ##############
+#################################################
